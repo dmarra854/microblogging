@@ -1,0 +1,10 @@
+Assumptions adicionales
+
+1.- No hay login ni gestión de usuarios. El userId se recibe por header.
+2.- No se implementa paginación en el MVP, pero se deja previsto en el diseño.
+3.- No se requiere un frontend.
+4.- Tweets no pueden editarse ni borrarse.
+5.- No hay likes, retweets ni comentarios.
+6.- Se prioriza el tiempo de respuesta para lecturas (timeline).
+7.- La persistencia será in-memory para esta demo, pero se detalla la tecnología target.
+8.- Se requiere un tiempo de desarrollo acotado.
