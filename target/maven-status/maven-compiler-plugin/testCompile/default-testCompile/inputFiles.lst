@@ -1,7 +1,7 @@
-/Users/dariomarranti/Develop/Workspace/personal/project/src/test/java/com/microblogging/project/TimelineControllerIntegrationTest.java
-/Users/dariomarranti/Develop/Workspace/personal/project/src/test/java/com/microblogging/project/FollowServiceTest.java
-/Users/dariomarranti/Develop/Workspace/personal/project/src/test/java/com/microblogging/project/PostTweetServiceTest.java
-/Users/dariomarranti/Develop/Workspace/personal/project/src/test/java/com/microblogging/project/TimelineServiceTest.java
-/Users/dariomarranti/Develop/Workspace/personal/project/src/test/java/com/microblogging/project/config/TestMocksConfig.java
-/Users/dariomarranti/Develop/Workspace/personal/project/src/test/java/com/microblogging/project/ProjectApplicationTests.java
-/Users/dariomarranti/Develop/Workspace/personal/project/src/test/java/com/microblogging/project/TweetControllerIntegrationTest.java
+/Users/dariomarranti/Develop/Workspace/personal/microblogging/src/test/java/com/microblogging/project/config/TestMocksConfig.java
+/Users/dariomarranti/Develop/Workspace/personal/microblogging/src/test/java/com/microblogging/project/TimelineServiceTest.java
+/Users/dariomarranti/Develop/Workspace/personal/microblogging/src/test/java/com/microblogging/project/ProjectApplicationTests.java
+/Users/dariomarranti/Develop/Workspace/personal/microblogging/src/test/java/com/microblogging/project/TimelineControllerIntegrationTest.java
+/Users/dariomarranti/Develop/Workspace/personal/microblogging/src/test/java/com/microblogging/project/TweetControllerIntegrationTest.java
+/Users/dariomarranti/Develop/Workspace/personal/microblogging/src/test/java/com/microblogging/project/PostTweetServiceTest.java
+/Users/dariomarranti/Develop/Workspace/personal/microblogging/src/test/java/com/microblogging/project/FollowServiceTest.java
