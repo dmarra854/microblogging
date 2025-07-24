@@ -43,5 +43,16 @@ services:
       - "6380:6379" # Evita conflicto si tenés Redis en local (host)
     restart: unless-stopped
 
+  app:
+    build: .
+    container_name: microblog-app
+    ports:
+      - "9099:9099"
+    depends_on:
+      - kafka
+      - postgres
+      - redis
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
 volumes:
   pgdata:

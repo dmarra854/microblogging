@@ -78,7 +78,12 @@ Este proyecto incluye un `Dockerfile` para la aplicación y un `docker-compose.y
 
 ### Construir y levantar los contenedores
 ```bash
-docker-compose up --build
+# Build Docker image de la app
+docker build -t microblog-app .
+
+# Levantar todo con docker-compose
+docker-compose up
+
 ```
 
 ### Acceder a la aplicación
