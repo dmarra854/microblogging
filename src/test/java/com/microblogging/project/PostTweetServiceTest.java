@@ -1,36 +1,30 @@
 package com.microblogging.project;
 
 import com.microblogging.project.application.service.PostTweetService;
+import com.microblogging.project.application.usecase.PostTweetUseCase;
 import com.microblogging.project.domain.event.TweetPostedEvent;
 import com.microblogging.project.domain.exception.UserNotFoundException;
 import com.microblogging.project.domain.model.Tweet;
-import com.microblogging.project.domain.port.FollowRepository;
-import com.microblogging.project.domain.port.MessagePublisher;
-import com.microblogging.project.domain.port.TweetRepository;
-import com.microblogging.project.domain.port.UserRepository;
-import com.microblogging.project.domain.port.TimelineCachePort;
+import com.microblogging.project.domain.port.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
+import org.mockito.*; // Import for ArgumentCaptor and other Mockito features
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
-import java.util.Collections;
+import java.util.Collections; // For empty sets
+import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-// Use MockitoExtension to enable Mockito annotations
 @ExtendWith(MockitoExtension.class)
 class PostTweetServiceTest {
 
-    // Mocks for all dependencies of PostTweetService
     @Mock
     private TweetRepository tweetRepo;
     @Mock
@@ -42,137 +36,149 @@ class PostTweetServiceTest {
     @Mock
     private TimelineCachePort timelineCachePort;
 
-    // InjectMocks creates an instance of PostTweetService and injects the mocks into it
     @InjectMocks
     private PostTweetService postTweetService;
 
+    // ArgumentCaptor to capture objects passed to mock methods for verification
+    @Captor
+    private ArgumentCaptor<Tweet> tweetCaptor;
+    @Captor
+    private ArgumentCaptor<TweetPostedEvent> eventCaptor;
+    @Captor
+    private ArgumentCaptor<UUID> uuidCaptor;
+
     // Test data
-    private UUID testUserId;
-    private String validContent;
-    private String tooLongContent;
+    private UUID userId;
+    private String content;
 
     @BeforeEach
     void setUp() {
-        testUserId = UUID.randomUUID();
-        validContent = "This is a valid tweet content.";
-        tooLongContent = "x".repeat(281); // Content exceeding 280 characters
+        userId = UUID.randomUUID();
+        content = "This is a test tweet content.";
+
+        // Default mock behavior for user existence
+        when(userRepo.existsById(userId)).thenReturn(true);
     }
 
     @Test
-    @DisplayName("Should successfully post a tweet, save it, invalidate caches, and publish event")
-    void shouldPostTweetSuccessfully() {
+    @DisplayName("Should successfully post a tweet and return the created tweet")
+    void post_Success() {
         // Arrange
-        // Simulate user exists
-        when(userRepo.existsById(testUserId)).thenReturn(true);
+        Set<UUID> followers = new HashSet<>();
+        followers.add(UUID.randomUUID());
+        followers.add(UUID.randomUUID());
+        when(followRepo.findFollowersByFolloweeId(userId)).thenReturn(followers);
 
-        // Simulate some followers
-        UUID follower1Id = UUID.randomUUID();
-        UUID follower2Id = UUID.randomUUID();
-        Set<UUID> followers = Set.of(follower1Id, follower2Id);
-        when(followRepo.findFollowersByFolloweeId(testUserId)).thenReturn(followers);
+        // Stubbing for save is usually not needed if you only verify call
+        // But if `tweetRepo.save` returns the saved entity, you might need it
+        // when(tweetRepo.save(any(Tweet.class))).thenReturn(any(Tweet.class)); // Example if needed
 
         // Act
-        Tweet resultTweet = postTweetService.post(testUserId, validContent);
+        Tweet resultTweet = assertDoesNotThrow(() -> postTweetService.post(userId, content));
 
         // Assert
-        assertNotNull(resultTweet);
-        assertEquals(testUserId, resultTweet.getUserId());
-        assertEquals(validContent, resultTweet.getContent());
-        assertNotNull(resultTweet.getId()); // ID should be generated
-        assertNotNull(resultTweet.getCreatedAt()); // Timestamp should be set
 
-        // Verify tweetRepo.save was called with the correct Tweet object
-        // Use ArgumentCaptor to capture the Tweet object passed to save
-        ArgumentCaptor<Tweet> tweetCaptor = ArgumentCaptor.forClass(Tweet.class);
+        // 1. Verify Tweet persistence
         verify(tweetRepo, times(1)).save(tweetCaptor.capture());
         Tweet capturedTweet = tweetCaptor.getValue();
-        assertEquals(resultTweet.getId(), capturedTweet.getId());
-        assertEquals(resultTweet.getUserId(), capturedTweet.getUserId());
-        assertEquals(resultTweet.getContent(), capturedTweet.getContent());
-        assertEquals(resultTweet.getCreatedAt(), capturedTweet.getCreatedAt());
+        assertNotNull(capturedTweet.getId()); // ID should be generated
+        assertEquals(userId, capturedTweet.getUserId());
+        assertEquals(content, capturedTweet.getContent());
+        assertNotNull(capturedTweet.getCreatedAt()); // Timestamp should be set
+        assertTrue(capturedTweet.getCreatedAt().isBefore(LocalDateTime.now().plusSeconds(1))); // Check timestamp roughly
+
+        // Ensure the returned tweet is the one that was saved
+        assertEquals(capturedTweet.getId(), resultTweet.getId());
+        assertEquals(capturedTweet.getUserId(), resultTweet.getUserId());
+        assertEquals(capturedTweet.getContent(), resultTweet.getContent());
+        assertEquals(capturedTweet.getCreatedAt(), resultTweet.getCreatedAt());
 
 
-        // Verify timelineCachePort.invalidateTimeline was called for each follower AND the user themselves
-        verify(timelineCachePort, times(1)).invalidateTimeline(follower1Id);
-        verify(timelineCachePort, times(1)).invalidateTimeline(follower2Id);
-        verify(timelineCachePort, times(1)).invalidateTimeline(testUserId); // User's own timeline
+        // 2. Verify cache invalidation for followers and tweeter
+        verify(followRepo, times(1)).findFollowersByFolloweeId(userId);
 
-        // Verify messagePublisher.publishTweetPostedEvent was called with the correct event
-        ArgumentCaptor<TweetPostedEvent> eventCaptor = ArgumentCaptor.forClass(TweetPostedEvent.class);
+        // Verify invalidateTimeline called for each follower + the user themselves
+        // It's called for each follower in the loop + one for the user
+        verify(timelineCachePort, times(followers.size() + 1)).invalidateTimeline(uuidCaptor.capture());
+
+        // Ensure all expected UUIDs were passed to invalidateTimeline
+        Set<UUID> invalidatedUuids = new HashSet<>(uuidCaptor.getAllValues());
+        assertTrue(invalidatedUuids.contains(userId)); // Tweeter's own timeline
+        assertTrue(invalidatedUuids.containsAll(followers)); // All followers' timelines
+        assertEquals(followers.size() + 1, invalidatedUuids.size()); // Total unique calls
+
+
+        // 3. Verify event publishing
         verify(messagePublisher, times(1)).publishTweetPostedEvent(eventCaptor.capture());
         TweetPostedEvent capturedEvent = eventCaptor.getValue();
-        assertEquals(resultTweet.getId(), capturedEvent.tweetId());
-        assertEquals(resultTweet.getUserId(), capturedEvent.userId());
-        assertEquals(resultTweet.getContent(), capturedEvent.content());
-        assertEquals(resultTweet.getCreatedAt(), capturedEvent.postedAt());
+        assertEquals(capturedTweet.getId(), capturedEvent.tweetId());
+        assertEquals(capturedTweet.getUserId(), capturedEvent.userId());
+        assertEquals(capturedTweet.getContent(), capturedEvent.content());
+        assertEquals(capturedTweet.getCreatedAt(), capturedEvent.postedAt());
 
-        // Verify no other interactions with mocks
+        // 4. Verify user existence check
+        verify(userRepo, times(1)).existsById(userId);
+
+        // Ensure no other unexpected interactions
         verifyNoMoreInteractions(tweetRepo, userRepo, followRepo, messagePublisher, timelineCachePort);
     }
 
     @Test
-    @DisplayName("Should throw UserNotFoundException if user does not exist")
-    void shouldThrowUserNotFoundExceptionWhenUserDoesNotExist() {
+    @DisplayName("Should throw UserNotFoundException if posting user does not exist")
+    void post_UserNotFound() {
         // Arrange
-        // Simulate user does NOT exist
-        when(userRepo.existsById(testUserId)).thenReturn(false);
+        when(userRepo.existsById(userId)).thenReturn(false); // User does not exist
 
         // Act & Assert
-        UserNotFoundException thrown = assertThrows(UserNotFoundException.class, () -> {
-            postTweetService.post(testUserId, validContent);
-        });
+        UserNotFoundException thrown = assertThrows(
+                UserNotFoundException.class,
+                () -> postTweetService.post(userId, content)
+        );
 
-        assertEquals("User with ID " + testUserId + " not found.", thrown.getMessage());
+        assertEquals("User with ID " + userId + " not found.", thrown.getMessage());
 
-        // Verify userRepo.existsById was called
-        verify(userRepo, times(1)).existsById(testUserId);
-        // Verify no other interactions occurred
+        // Verify only user existence check was performed
+        verify(userRepo, times(1)).existsById(userId);
         verifyNoInteractions(tweetRepo, followRepo, messagePublisher, timelineCachePort);
     }
 
     @Test
-    @DisplayName("Should invalidate only own timeline if user has no followers")
-    void shouldInvalidateOnlyOwnTimelineIfNoFollowers() {
+    @DisplayName("Should invalidate own timeline even if user has no followers")
+    void post_NoFollowers() {
         // Arrange
-        when(userRepo.existsById(testUserId)).thenReturn(true);
-        // Simulate no followers
-        when(followRepo.findFollowersByFolloweeId(testUserId)).thenReturn(Collections.emptySet());
+        when(followRepo.findFollowersByFolloweeId(userId)).thenReturn(Collections.emptySet()); // No followers
 
         // Act
-        Tweet resultTweet = postTweetService.post(testUserId, validContent);
+        assertDoesNotThrow(() -> postTweetService.post(userId, content));
 
         // Assert
-        assertNotNull(resultTweet);
-        verify(tweetRepo, times(1)).save(any(Tweet.class));
-        verify(messagePublisher, times(1)).publishTweetPostedEvent(any(TweetPostedEvent.class));
+        verify(tweetRepo, times(1)).save(any(Tweet.class)); // Tweet should still be saved
+        verify(userRepo, times(1)).existsById(userId); // User existence checked
 
-        // Verify only the user's own timeline was invalidated
-        verify(timelineCachePort, times(1)).invalidateTimeline(testUserId);
-        verify(timelineCachePort, never()).invalidateTimeline(argThat(id -> !id.equals(testUserId))); // No other invalidations
+        // Only own timeline should be invalidated
+        verify(timelineCachePort, times(1)).invalidateTimeline(userId);
+        verify(followRepo, times(1)).findFollowersByFolloweeId(userId);
+        verify(messagePublisher, times(1)).publishTweetPostedEvent(any(TweetPostedEvent.class));
 
         verifyNoMoreInteractions(tweetRepo, userRepo, followRepo, messagePublisher, timelineCachePort);
     }
 
-    // Note: The service assumes content length validation is primarily handled by DTO validation.
-    // However, if the service itself *could* throw IllegalArgumentException for length,
-    // this test would be relevant.
-    @Test
-    @DisplayName("Should not process tweet if content is too long (assuming DTO validation fallback)")
-    void shouldNotProcessTweetIfContentTooLong() {
-        // Arrange
-        // No specific mock setup needed as validation happens before other interactions
-
-        // Act & Assert
-        // The service doesn't have an explicit length check in the provided code,
-        // but if it did (like in the commented-out line), this test would catch it.
-        // For now, this test is more conceptual, assuming the controller's @Size validation.
-        // If you were to add: if (content.length() > 280) throw new IllegalArgumentException("Tweet too long");
-        // then this test would pass.
-        // As per the refactored code, this check is assumed to be handled by the DTO.
-        // If you want to enforce it at the service layer, uncomment the line in PostTweetService
-        // and add a custom exception.
-        // For now, we'll confirm no interactions if such a check *were* present.
-        assertDoesNotThrow(() -> postTweetService.post(testUserId, tooLongContent)); // If no exception is thrown by service
-        verifyNoInteractions(tweetRepo, userRepo, followRepo, messagePublisher, timelineCachePort);
-    }
+    // Optional: Add a test for content length if you decide to implement that business rule in the service layer
+    // @Test
+    // @DisplayName("Should throw TweetContentTooLongException if content exceeds 280 characters")
+    // void post_ContentTooLong() {
+    //     // Arrange
+    //     String longContent = "a".repeat(281); // More than 280 characters
+    //
+    //     // Act & Assert
+    //     // Replace with your custom exception if you create one, e.g., TweetContentTooLongException
+    //     IllegalArgumentException thrown = assertThrows(
+    //             IllegalArgumentException.class, // Or your custom exception
+    //             () -> postTweetService.post(userId, longContent)
+    //     );
+    //
+    //     assertEquals("Tweet content cannot exceed 280 characters", thrown.getMessage());
+    //     verify(userRepo, times(1)).existsById(userId); // User check should still happen
+    //     verifyNoInteractions(tweetRepo, followRepo, messagePublisher, timelineCachePort); // No other interactions
+    // }
 }
